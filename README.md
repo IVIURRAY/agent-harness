@@ -1,6 +1,6 @@
 # agent-harness
 
-A small agent harness built from scratch in about 700 lines of Python. It's meant for learning, and the
+A small agent harness built from scratch in about 900 lines of Python (plus tests and the demo). It's meant for learning, and the
 code is written to be read.
 
 > **Harness** = the code around an LLM that supplies context, tools and guardrails, and runs the
