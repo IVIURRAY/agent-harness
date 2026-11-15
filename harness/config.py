@@ -1,9 +1,9 @@
-"""Settings from ~/.env, ./.env and the environment. Secrets stay in the process env for the SDK."""
+"""Settings from ~/.env, ./.env and the environment. Secrets stay in the process env for the SDKs."""
 
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -11,25 +11,38 @@ from dotenv import load_dotenv
 
 @dataclass
 class Settings:
-    model: str
+    provider: str                     # anthropic | openrouter
+    model: str | None                 # None = provider default / auto-discover
     effort: str
     max_steps: int
     compact_at_tokens: int
     fallbacks: bool
+    fallback_models: list[str] = field(default_factory=list)
 
 
-def load_settings() -> Settings:
+def _env_list(name: str) -> list[str]:
+    return [s.strip() for s in os.getenv(name, "").split(",") if s.strip()]
+
+
+def load_settings(provider_override: str | None = None) -> Settings:
     load_dotenv(Path.home() / ".env")
     load_dotenv(Path.cwd() / ".env")  # project-local overrides
+    provider = (provider_override or os.getenv("HARNESS_PROVIDER") or "auto").lower()
+    if provider == "auto":
+        provider = "openrouter" if os.getenv("OPENROUTER_API_KEY") and not os.getenv("ANTHROPIC_API_KEY") else "anthropic"
     return Settings(
-        model=os.getenv("HARNESS_MODEL", "claude-sonnet-5-5"),
+        provider=provider,
+        model=os.getenv("HARNESS_MODEL") or None,
         effort=os.getenv("HARNESS_EFFORT", "medium"),
         max_steps=int(os.getenv("HARNESS_MAX_STEPS", "40")),
         compact_at_tokens=int(os.getenv("HARNESS_COMPACT_AT_TOKENS", "120000")),
-        # Turn off on platforms without server-side fallbacks (Bedrock / Vertex / Foundry).
+        # Anthropic server-side refusal fallbacks. Turn off on Bedrock / Vertex / Foundry.
         fallbacks=os.getenv("HARNESS_FALLBACKS", "1") not in ("0", "false", "no"),
+        fallback_models=_env_list("HARNESS_FALLBACK_MODELS"),
     )
 
 
-def has_credentials() -> bool:
-    return bool(os.getenv("ANTHROPIC_API_KEY") or os.getenv("ANTHROPIC_AUTH_TOKEN"))
+def credential_for(provider: str) -> str | None:
+    if provider == "openrouter":
+        return os.getenv("OPENROUTER_API_KEY")
+    return os.getenv("ANTHROPIC_API_KEY") or os.getenv("ANTHROPIC_AUTH_TOKEN")

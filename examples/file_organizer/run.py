@@ -1,6 +1,7 @@
 """File-organising agent demo.
 
-    python -m examples.file_organizer.run            # real model (needs ANTHROPIC_API_KEY in ~/.env)
+    python -m examples.file_organizer.run            # real model (ANTHROPIC_API_KEY or OPENROUTER_API_KEY in ~/.env)
+    python -m examples.file_organizer.run --provider openrouter   # free OpenRouter model, auto-selected
     python -m examples.file_organizer.run --offline  # scripted model, no key needed
     python -m examples.file_organizer.run --yes      # auto-approve everything
 """
@@ -15,7 +16,8 @@ from rich.console import Console
 
 from harness import Agent, AgentConfig, EventBus
 from harness.approvals import AutoApprove
-from harness.config import has_credentials, load_settings
+from harness.config import load_settings
+from harness.factory import SetupError, build_provider
 from harness.events import JsonlTrace
 from harness.sandbox import Sandbox
 from harness.tools import ToolRegistry, filesystem_tools
@@ -67,22 +69,26 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--yes", action="store_true", help="auto-approve every operation")
     ap.add_argument("--no-seed", action="store_true", help="don't reset the workspace first")
     ap.add_argument("--hide-thinking", action="store_true")
+    ap.add_argument("--provider", choices=["anthropic", "openrouter"], help="default: HARNESS_PROVIDER or auto")
     args = ap.parse_args(argv)
 
     console = Console()
-    settings = load_settings()
+    settings = load_settings(args.provider)
     workspace = Path(args.dir) if args.no_seed else seed(Path(args.dir))
     sandbox = Sandbox(workspace)
 
+    compact_at = settings.compact_at_tokens
     if args.offline:
         provider = offline_script()
     else:
-        if not has_credentials():
-            console.print("[red]No ANTHROPIC_API_KEY found in ~/.env, ./.env or the environment.[/red] "
-                          "Add one, or run with --offline.")
+        try:
+            built = build_provider(settings)
+        except SetupError as exc:
+            console.print(f"[red]{exc}[/red] Add a key (see .env.example), or run with --offline.")
             return 2
-        from harness.providers.anthropic_provider import AnthropicProvider
-        provider = AnthropicProvider(model=settings.model, effort=settings.effort, fallbacks=settings.fallbacks)
+        provider, compact_at = built.provider, built.compact_at_tokens
+        for note in built.notes:
+            console.print(f"[dim]{note}[/dim]")
 
     bus = EventBus()
     bus.subscribe(ConsoleRenderer(console, show_thinking=not args.hide_thinking))
@@ -95,7 +101,7 @@ def main(argv: list[str] | None = None) -> int:
         tools=ToolRegistry(filesystem_tools(sandbox)),
         approvals=AutoApprove() if args.yes else TerminalApprovals(console),
         bus=bus,
-        config=AgentConfig(max_steps=settings.max_steps, compact_at_tokens=settings.compact_at_tokens),
+        config=AgentConfig(max_steps=settings.max_steps, compact_at_tokens=compact_at),
     )
     try:
         result = agent.run(TASK)

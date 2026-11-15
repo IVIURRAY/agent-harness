@@ -18,8 +18,12 @@ pip install -e ".[dev]"
 # No key needed: scripted model, real harness, real filesystem ops
 python -m examples.file_organizer.run --offline
 
-# Real model: put ANTHROPIC_API_KEY in ~/.env (see .env.example)
-python -m examples.file_organizer.run
+# Free model via OpenRouter: put OPENROUTER_API_KEY in ~/.env (see .env.example)
+python -m harness.providers.openrouter_models      # see which free models support tools today
+python -m examples.file_organizer.run --provider openrouter
+
+# Claude: put ANTHROPIC_API_KEY in ~/.env
+python -m examples.file_organizer.run --provider anthropic
 
 pytest
 ```
@@ -55,6 +59,9 @@ sees*, and *when to stop*.
 | `harness/loop.py` | The loop: step limit, tool dispatch, validation, approvals, repeat guard, compaction, events |
 | `harness/providers/base.py` | Provider boundary: normalised `ModelTurn` / `ToolCall` / `ToolOutcome` |
 | `harness/providers/anthropic_provider.py` | Claude via the official SDK |
+| `harness/providers/openai_compat.py` | Any OpenAI-compatible endpoint: OpenRouter (default), OpenAI, Ollama, vLLM |
+| `harness/providers/openrouter_models.py` | Lists free, tool-capable OpenRouter models at run time |
+| `harness/factory.py` | Settings → provider (incl. free-model auto-selection) |
 | `harness/providers/scripted.py` | Deterministic fake model for tests and `--offline` |
 | `harness/tools/` | `Tool` (schema + fn + `requires_approval` + human preview), sandboxed fs tools |
 | `harness/sandbox.py` | Path jail (traversal, absolute paths, symlink escapes) |
@@ -109,6 +116,24 @@ future OTel exporter (`step` → span, `tool_call`/`tool_result` → child spans
 - Top-level automatic prompt caching. The UI shows cached tokens per step.
 - `max_tokens` stops discard any (possibly truncated) tool calls and ask the model to continue.
 
+### OpenRouter / free-model notes (in `openai_compat.py`)
+- **No hard-coded free model.** The free roster changes all the time. With no `HARNESS_MODEL` set, the
+  harness asks `/api/v1/models` for free models that support `tools` and picks the one with the largest
+  context window. It passes the next two as OpenRouter `models` fallbacks for when the first is down or
+  rate-limited. For repeatable runs, pin a model with `HARNESS_MODEL` once you've found one that behaves.
+- `provider.require_parameters: true` stops OpenRouter routing you to an upstream that silently
+  ignores the tool definitions.
+- **Weaker models misbehave in ways the harness must absorb:** malformed JSON arguments (returned to the
+  model as an error so it can retry), tool calls with `finish_reason: "stop"` (we trust the
+  `tool_calls` field), HTTP 200 responses with an error and no choices, and output truncated mid-call
+  (dropped, never run). The approval gate and sandbox matter more here, not less.
+- The compaction threshold is capped at 60% of the selected model's context window, since free models
+  often have small ones.
+- **Limits and privacy:** free models are heavily rate-limited (per minute and per day; buying a few
+  credits raises the daily cap). The SDK retries 429s with backoff. Some free endpoints log or train on
+  prompts, and a "no endpoints found" error can mean you need to allow free-model data policies in
+  OpenRouter's privacy settings. Keep real or work data out of free models.
+
 ## MVP vs later
 
 **In the MVP (done):** loop, tools, sandbox, approvals, status and activity UI, compaction, guardrails,
@@ -118,7 +143,8 @@ traces, offline provider, tests.
 1. **Evals.** A handful of seeded workspaces plus a checker (every file moved? sensible groupings? no
    declined op retried?). Run with the scripted provider in CI and the real model nightly. This is
    what tells you a prompt or model change helped.
-2. **A second provider** (OpenAI or a local model) behind `ProviderSession`. This proves the abstraction.
+2. **Cross-provider evals.** Run the same eval on Claude and a couple of free models. Comparing
+   failure modes (bad args, ignored declines, premature "done") is the most instructive thing in this repo.
 3. **OTel exporter** subscriber to Phoenix or MLflow.
 4. **Persistent memory / resumable runs.** Checkpoint the transcript and run state to disk.
 5. **Input/output guardrails** (e.g. prompt-injection screening of file contents before they enter
