@@ -138,9 +138,9 @@ Stack traces don't go into the context.
 checks the loop runs around the model: unknown tools and bad arguments are rejected, the same call
 more than 3 times in a row is blocked, each tool result is capped at 8k characters, and a reply cut
 off at the output limit is continued, never run. The path jail stays in `sandbox.py` and approvals in
-`approvals.py`, because those *are* the enforcement points, and the step budget (40 model calls)
-stays in the loop. Every check that fires returns a message to the model instead of raising, so the
-run can recover, and emits a `guardrail` event for the trace.
+`approvals.py`, because those *are* the enforcement points, and the step budget (`HARNESS_MAX_STEPS`, default
+40 model calls) stays in the loop. Every check that fires returns a message to the model instead of raising,
+so the run can recover, and emits a `guardrail` event for the trace.
 
 **6b. "Asked instead of acting" nudge.** A common failure, especially with weaker models: the
 model writes "Shall I go ahead?" instead of calling the tool. With no tool calls in the reply, a

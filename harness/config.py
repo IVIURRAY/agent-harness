@@ -9,6 +9,11 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 
+# The one place these defaults live. AgentConfig (loop.py) and .env both resolve to them.
+DEFAULT_MAX_STEPS = 40                # model calls per run - the hard stop on runaway loops
+DEFAULT_COMPACT_AT_TOKENS = 120_000   # compact the conversation when the context reaches this size
+
+
 @dataclass
 class Settings:
     provider: str                     # anthropic | openrouter
@@ -34,8 +39,8 @@ def load_settings(provider_override: str | None = None) -> Settings:
         provider=provider,
         model=os.getenv("HARNESS_MODEL") or None,
         effort=os.getenv("HARNESS_EFFORT", "medium"),
-        max_steps=int(os.getenv("HARNESS_MAX_STEPS", "40")),
-        compact_at_tokens=int(os.getenv("HARNESS_COMPACT_AT_TOKENS", "120000")),
+        max_steps=int(os.getenv("HARNESS_MAX_STEPS", DEFAULT_MAX_STEPS)),
+        compact_at_tokens=int(os.getenv("HARNESS_COMPACT_AT_TOKENS", DEFAULT_COMPACT_AT_TOKENS)),
         # Anthropic server-side refusal fallbacks. Turn off on Bedrock / Vertex / Foundry.
         fallbacks=os.getenv("HARNESS_FALLBACKS", "1") not in ("0", "false", "no"),
         fallback_models=_env_list("HARNESS_FALLBACK_MODELS"),

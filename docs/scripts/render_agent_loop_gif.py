@@ -21,6 +21,7 @@ import random
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from harness.config import DEFAULT_MAX_STEPS
 from PIL import Image
 from sketch import (
     AMBER,
@@ -227,7 +228,7 @@ def centre(d, rng, seg: Seg, t: float, f: int):
     text(d, (MODEL.c[0], MODEL.y + 30), "model call", F_BOX, INK)
     text(d, (MODEL.c[0], MODEL.y + 56), "provider.step(history)", F_SUB, MUTED)
     if seg.step:
-        label_pill(d, MODEL.x + 4, MODEL.y - 2, f"step {seg.step} / 40", INK)
+        label_pill(d, MODEL.x + 4, MODEL.y - 2, f"step {seg.step} / {DEFAULT_MAX_STEPS}", INK)
     text(d, (MODEL.x + MODEL.w + 16, MODEL.y + 8), "before each call:", F_SMALL, MUTED, anchor="lm")
     text(d, (MODEL.x + MODEL.w + 16, MODEL.y + 28), "compact if context > 60%", F_SMALL, MUTED, anchor="lm")
 

@@ -16,6 +16,7 @@ from typing import Any
 
 from . import events as ev
 from .approvals import ApprovalGate, AutoApprove
+from .config import DEFAULT_COMPACT_AT_TOKENS, DEFAULT_MAX_STEPS
 from .events import EventBus
 from .guardrails import GuardrailConfig, Guardrails
 from .providers.base import (
@@ -48,8 +49,8 @@ Continue the task from where you left off. Re-check the current state with tools
 
 @dataclass
 class AgentConfig:
-    max_steps: int = 40                 # model calls per run - the hard stop on runaway loops
-    compact_at_tokens: int = 120_000    # compact when the context reaches this size
+    max_steps: int = DEFAULT_MAX_STEPS                      # model calls per run
+    compact_at_tokens: int = DEFAULT_COMPACT_AT_TOKENS      # compact when the context reaches this size
     guardrails: GuardrailConfig = field(default_factory=GuardrailConfig)
 
 
