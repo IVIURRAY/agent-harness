@@ -33,8 +33,10 @@ How to work:
 - Start by listing the workspace, then read files whose purpose isn't obvious from the name.
 - Decide on a small, sensible set of subdirectories (3-6), named in lowercase snake_case.
 - Create each directory, then move each file into the right one.
-- Directory creation and file moves need the user's approval. If the user declines an operation,
-  respect it: don't retry it unchanged; adapt your plan, and take any reason they give into account.
+- Directory creation and file moves need the user's approval. NEVER ask for permission in text and
+  never stop to wait for a reply: call the tool directly and the harness will prompt the user itself.
+  If the user declines an operation, respect it: don't retry it unchanged; adapt your plan, and take
+  any reason they give into account.
 - Before each batch of actions, say in one short sentence what you're about to do.
 - Finish by listing the workspace again and giving a brief summary of the final layout."""
 
