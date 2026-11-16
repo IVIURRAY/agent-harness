@@ -152,13 +152,24 @@ def script():
     def move(start, end, a, b, color, label=None, at=None, **kw):
         pk.append(Packet(T(start), T(end), [a, b], color, label, label_at=at, **kw))
 
+    def event(start, src):
+        """An event drops into the bus from the box that produced it, when it produced it."""
+        x = B[src].c[0] + random.Random(start).uniform(-30, 30)
+        pk.append(Packet(T(start), T(start + 7), [(x, B[src].y + B[src].h), (x, ROW3 + 22)], PINK, size=5))
+
     def down_tools(start, color, label, back_label, blocked=False):
-        """loop -> gate -> sandbox -> tools and back; `blocked` stops at the sandbox."""
+        """loop -> gate -> sandbox -> tools and back; `blocked` stops at the sandbox.
+
+        Events mirror harness/loop.py: tool_call (+ approval_requested/decided for writes) as the
+        call passes the gate, tool_result as the outcome comes back through the sandbox.
+        Guardrails emit nothing here - they only emit when one actually fires."""
         t = start
         move(t, t + 7, B["loop"].bottom(-20), B["approve"].top(-20), color, label,
              (B["approve"].c[0] - 40, BELOW_ROW1))
+        event(t + 7, "approve")
         move(t + 7, t + 14, B["approve"].right(-12), B["sandbox"].left(-12), color)
         if blocked:
+            event(t + 16, "sandbox")
             move(t + 16, t + 23, B["sandbox"].left(12), B["approve"].right(12), RED, back_label,
                  (B["sandbox"].c[0] - 40, BELOW_ROW2), linger=22)
             move(t + 23, t + 30, B["approve"].top(20), B["loop"].bottom(20), RED)
@@ -166,6 +177,7 @@ def script():
         move(t + 14, t + 21, B["sandbox"].right(-12), B["tools"].left(-12), color)
         move(t + 22, t + 29, B["tools"].left(12), B["sandbox"].right(12), GREEN, back_label,
              (B["tools"].c[0], BELOW_ROW2))
+        event(t + 29, "sandbox")
         move(t + 29, t + 35, B["sandbox"].left(12), B["approve"].right(12), GREEN)
         move(t + 35, t + 41, B["approve"].top(20), B["loop"].bottom(20), GREEN)
         return t + 41
@@ -193,17 +205,12 @@ def script():
     move(end + 1, end + 10, B["loop"].left(12), B["task"].right(12), BLUE, "Done: 4 folders",
          (B["task"].c[0] + 140, ABOVE_ROW1))
 
-    # Telemetry dots fall from the action lane into the event bus as work happens.
-    for f in range(14, end, 9):
-        src = ("approve", "sandbox", "guard")[f % 3]
-        x = B[src].c[0] + random.Random(f).uniform(-30, 30)
-        pk.append(Packet(T(f), T(f + 7), [(x, B[src].y + B[src].h), (x, ROW3 + 22)], PINK, size=5))
     move(end - 4, end + 6, B["events"].right(), B["subs"].left(), PINK, "status line + trace",
          (B["subs"].c[0], ABOVE_ROW3))
 
     lit = {
         "task": [0, 12, end, end + 25], "loop": [8, end + 12], "provider": [12, end],
-        "llm": [18, end], "guard": [42, 50, write_start, write_start + 6],
+        "llm": [18, end], "guard": [42, 49, write_start, write_start + 7, escape_start, escape_start + 7],
         "approve": [write_start, write_start + 14, escape_start, escape_start + 8],
         "sandbox": [42, 60, escape_start + 6, escape_start + 24], "tools": [50, 70, write_start + 14, write_start + 30],
         "events": [14, end + 6], "subs": [end - 2, end + 25],
