@@ -2,15 +2,16 @@
 name = "agent-harness"
 version = "0.1.0"
 description = "A small, from-scratch agent harness: loop, tools, sandbox, approvals, context management, tracing."
+readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     "anthropic>=2.8",
+    "openai>=1.60",       # OpenAI-compatible endpoints (OpenRouter, Ollama, vLLM...)
     "python-dotenv>=1.0",
     "rich>=13.0",
-    "openai>=1.60",       # OpenAI-compatible endpoints (OpenRouter, Ollama, vLLM...)
 ]
 
-[project.optional-dependencies]
+[dependency-groups]
 dev = ["pytest>=8"]
 
 [build-system]

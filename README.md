@@ -11,21 +11,23 @@ one directory, asks for approval before every mutation, and shows tool activity 
 
 ## Quick start
 
+Needs [uv](https://docs.astral.sh/uv/) (`curl -LsSf https://astral.sh/uv/install.sh | sh` or `brew install uv`).
+uv installs the pinned Python and dependencies on first run.
+
 ```bash
-python -m venv .venv && source .venv/bin/activate
-pip install -e ".[dev]"
+uv sync
 
 # No key needed: scripted model, real harness, real filesystem ops
-python -m examples.file_organizer.run --offline
+uv run python -m examples.file_organizer.run --offline
 
 # Free model via OpenRouter: put OPENROUTER_API_KEY in ~/.env (see .env.example)
-python -m harness.providers.openrouter_models      # see which free models support tools today
-python -m examples.file_organizer.run --provider openrouter
+uv run python -m harness.providers.openrouter_models      # free models that support tools today
+uv run python -m examples.file_organizer.run --provider openrouter
 
 # Claude: put ANTHROPIC_API_KEY in ~/.env
-python -m examples.file_organizer.run --provider anthropic
+uv run python -m examples.file_organizer.run --provider anthropic
 
-pytest
+uv run pytest
 ```
 
 Flags: `--yes` (auto-approve), `--hide-thinking`, `--dir PATH`, `--no-seed`.
