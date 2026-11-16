@@ -25,6 +25,7 @@ class Tool:
     fn: Callable[..., str]
     required: list[str] = field(default_factory=list)
     requires_approval: bool = False
+    untrusted_output: bool = False      # output comes from outside the harness (files, web...) -> screened
     describe: Callable[[dict[str, Any]], str] | None = None
 
     def json_schema(self) -> dict[str, Any]:

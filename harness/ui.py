@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 
 from rich.console import Console
+from rich.markup import escape
 from rich.panel import Panel
 from rich.prompt import Prompt
 from rich.text import Text
@@ -45,7 +46,7 @@ class ConsoleRenderer:
             if "step" in d:
                 self._step = f"{d['step']}/{d['max_steps']}"
             icon = PHASE_ICON.get(d["phase"], "•")
-            text = f"[bold]step {self._step}[/bold]  {icon} {d['phase']}  [dim]{d.get('detail', '')}[/dim]"
+            text = f"[bold]step {self._step}[/bold]  {icon} {d['phase']}  [dim]{escape(str(d.get('detail', '')))}[/dim]"
             if d["phase"] == "awaiting approval":
                 self._clear_status()  # the prompt needs the terminal
             else:
@@ -57,28 +58,28 @@ class ConsoleRenderer:
             self.c.print(f"[dim]── step {self._step} · stop={d['stop']} · ctx≈{d['context_tokens']:,} tok"
                          f"{cached} · out {u['output_tokens']:,}[/dim]")
             for note in d.get("notes", []):
-                self.c.print(f"[yellow]   note: {note}[/yellow]")
+                self.c.print(f"[yellow]   note: {escape(note)}[/yellow]")
         elif e.kind == ev.THINKING and self.show_thinking:
             self.c.print(Text("   💭 " + _first_lines(d["text"], 3), style="dim italic"))
         elif e.kind == ev.ASSISTANT_TEXT:
             self.c.print(Text("   🤖 " + d["text"], style="white"))
         elif e.kind == ev.TOOL_CALL:
             self._clear_status()
-            self.c.print(f"   [cyan]→ {d['name']}[/cyan] [dim]{_short_json(d['args'])}[/dim]")
+            self.c.print(f"   [cyan]→ {escape(d['name'])}[/cyan] [dim]{escape(_short_json(d['args']))}[/dim]")
         elif e.kind == ev.TOOL_RESULT:
             self._clear_status()
             style = "green" if d["ok"] else "red"
             mark = "✓" if d["ok"] else "✗"
-            self.c.print(f"     [{style}]{mark}[/{style}] [dim]{_first_lines(d['output'], 4)}[/dim]")
+            self.c.print(f"     [{style}]{mark}[/{style}] [dim]{escape(_first_lines(_unwrap(d['output']), 4))}[/dim]")
         elif e.kind == ev.APPROVAL_DECIDED:
             verdict = "[green]approved[/green]" if d["approved"] else "[red]declined[/red]"
-            self.c.print(f"     {verdict} [dim]{d.get('reason', '')}[/dim]")
+            self.c.print(f"     {verdict} [dim]{escape(d.get('reason') or '')}[/dim]")
         elif e.kind == ev.COMPACTION:
             self._clear_status()
             self.c.print(Panel(_first_lines(d["summary"], 12), title=f"🗜  compacted (was ≈{d['before_tokens']:,} tokens)",
                                border_style="magenta"))
         elif e.kind == ev.GUARDRAIL:
-            self.c.print(f"   [yellow]⚠ guardrail: {d['reason']}[/yellow]")
+            self.c.print(f"   [yellow]⚠ guardrail: {escape(d['reason'])}[/yellow]")
         elif e.kind == ev.RUN_FINISHED:
             self._clear_status()
             colour = "green" if d["status"] == "completed" else "red"
@@ -105,6 +106,14 @@ class TerminalApprovals:
         if answer == "r":
             return Decision(False, Prompt.ask("  reason (sent to the agent)", console=self.c))
         return Decision(False)
+
+
+def _unwrap(text: str) -> str:
+    """Hide the <untrusted_content> wrapper in the terminal; the trace keeps what the model saw."""
+    lines = text.strip().splitlines()
+    if len(lines) >= 2 and lines[0].startswith("<untrusted_content") and lines[-1] == "</untrusted_content>":
+        return "\n".join(lines[1:-1])
+    return text
 
 
 def _first_lines(text: str, n: int) -> str:

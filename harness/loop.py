@@ -1,4 +1,4 @@
-"""The agent loop.
+r"""The agent loop.
 
     task -> [compact?] -> model -> tool calls? -> (approve) -> execute -> results -> model ...
                                      \-> no: done
@@ -177,12 +177,15 @@ class Agent:
 
         bus.emit(ev.STATUS, phase="executing", detail=tool.preview(args))
         try:
-            output = self.guardrails.cap_result(tool.fn(**args))
+            raw = tool.fn(**args)
         except ToolError as exc:
             return fail(f"Error: {exc}")
         except Exception as exc:  # never leak stack traces / internals into the context
             bus.emit(ev.GUARDRAIL, reason=f"tool {call.name} crashed: {exc!r}")
             return fail("Internal tool error.")
+        output, trips = self.guardrails.screen_result(tool, raw)
+        for trip in trips:
+            bus.emit(ev.GUARDRAIL, reason=trip.reason)
         bus.emit(ev.TOOL_RESULT, id=call.id, name=call.name, ok=True, output=output)
         return ToolOutcome(call.id, output)
 
