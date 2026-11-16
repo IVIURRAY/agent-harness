@@ -62,3 +62,25 @@ def test_compaction_replaces_history_with_summary(tmp_path):
     first = provider.session.transcript[0]
     assert first[0] == "user" and "organise" in first[1] and "<progress_summary>" in first[1]
     assert any(e.kind == "compaction" for e in events)
+
+
+def test_decline_reason_is_passed_to_the_model(tmp_path):
+    class WithReason:
+        def decide(self, tool, args, preview):
+            from harness.approvals import Decision
+            return Decision(False, "keep receipts separate")
+
+    agent, provider, _ = make_agent(tmp_path, [Script(calls=[("create_directory", {"path": "x"})])], WithReason())
+    agent.run("go")
+    assert "Reason: keep receipts separate. Do not retry" in provider.session.results[0].content
+
+
+def test_scripted_turns_can_branch_on_a_decline(tmp_path):
+    def declined(history):
+        return any(o.is_error and "declined" in o.content for _, o in history)
+
+    turns = [Script(calls=[("create_directory", {"path": "x"})]),
+             Script("adapted", when=declined),
+             Script("approved path")]
+    agent, _, _ = make_agent(tmp_path, turns, ScriptedApprovals([False]))
+    assert agent.run("go").final_text == "adapted"

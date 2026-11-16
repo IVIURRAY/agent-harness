@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/architecture.gif" alt="Animated architecture: a task goes into the agent loop, which calls the model through a provider (Anthropic, OpenRouter or a scripted fake). Each tool call the model makes passes guardrails and the approval gate, then runs inside the sandbox against the filesystem tools: a read-only listing goes straight through, a file move waits for the user to approve it, and a read of a path outside the workspace is refused by the sandbox. When the model replies without tool calls the run ends, and every step is emitted as an event to the terminal UI and a JSONL trace." width="100%">
+</p>
+
 # agent-harness
 
 A small agent harness built from scratch in about 1,000 lines of Python (plus tests and the demo). It's meant for learning, and the
@@ -8,6 +12,18 @@ code is written to be read.
 
 The demo is the file-organising agent from *The Batch* (13 Nov 2026). It runs with the tools jailed to
 one directory, asks for approval before every mutation, and shows tool activity and a live status line.
+
+## See it in action
+
+<p align="center">
+  <img src="docs/demo.gif" alt="The terminal UI running the file organiser: the agent lists and reads the files, proposes four folders and each file move, and the user approves them one at a time. The user declines moving the climbing-shoes receipt into finance, with the reason 'keep receipts in their own folder', then approves the rest. The agent creates a receipts folder, moves the receipt there, checks the final layout and finishes with a summary panel showing steps, tool calls and tokens." width="100%">
+</p>
+
+A real run of the terminal UI in `--offline` mode. The model is scripted, so it needs no API key,
+but the harness, approval prompts, sandbox and file moves are all real. The user approves the
+folders and the first moves, declines the receipt move with a reason (`r`), then approves the rest
+(`a`). The scripted model reacts to the decline the way a real one should: it doesn't retry, it
+makes a `receipts/` folder instead. `docs/scripts/record_demo.py` re-records it.
 
 ## Quick start
 
@@ -33,6 +49,22 @@ uv run pytest
 Flags: `--yes` (auto-approve), `--hide-thinking`, `--dir PATH`, `--no-seed`.
 Set `HARNESS_COMPACT_AT_TOKENS=4000` to watch compaction happen during the demo.
 Every run writes a JSONL trace to `runs/`.
+
+## Inside the loop
+
+<p align="center">
+  <img src="docs/agent-loop.gif" alt="Animated deep dive into one run: the model sees the system rules, the tool schemas and the task. Each step it is called with the whole conversation; if its reply contains tool calls, the harness validates them, asks the user to approve writes, runs them in the sandbox and appends the results. The user declines one move with a reason, which goes back to the model as an error result, and the model adapts by creating a receipts folder. When the model replies with no tool calls, the loop ends with a summary. The conversation panel grows append-only throughout." width="100%">
+</p>
+
+**This is a ReAct loop** (reason, act, observe). Each step the model is called with the whole
+conversation. If its reply contains tool calls, the harness takes over: it validates the
+arguments, asks you about anything that writes, runs the call inside the sandbox and appends the
+result. If the reply has no tool calls, the run is over. Two things the animation makes visible:
+
+- **The model decides, the harness enforces.** The loop never chooses what to do next; it only
+  routes on whether the reply has tool calls, and stops runaway runs with a step budget.
+- **A decline is information, not a failure.** It goes back to the model as an error result,
+  with your reason, so the model can change its plan instead of retrying the same call.
 
 ## Mental model
 
@@ -155,6 +187,21 @@ traces, offline provider, tests.
    enough for fs-only tools, not for `bash`.
 
 **Can wait:** parallel tool execution, streaming tokens to the UI, multi-agent.
+
+## Regenerating the GIFs
+
+The GIFs are generated, not screen-recorded by hand. They use the same hand-drawn style as
+[agentic-research-assistant](https://github.com/IVIURRAY/agentic-research-assistant):
+
+```bash
+uv run --group docs python docs/scripts/render_architecture_gif.py   # docs/architecture.gif
+uv run --group docs python docs/scripts/render_agent_loop_gif.py     # docs/agent-loop.gif
+uv run --group docs python docs/scripts/record_demo.py               # docs/demo.gif (macOS/Linux)
+```
+
+The diagram scripts take `--still 120,300` to write PNGs of single frames for checking layout.
+`record_demo.py` runs the offline demo in a pseudo-terminal, answers the prompts, and renders the
+output with pyte + Pillow, so it needs no asciinema, agg or vhs.
 
 ## Why not the OpenWorker SDK?
 This repo does what the SDK would do for you, so each piece is visible. Once you've built it

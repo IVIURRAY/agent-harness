@@ -181,7 +181,7 @@ class Agent:
             state.approve_rest = state.approve_rest or decision.approve_rest
             bus.emit(ev.APPROVAL_DECIDED, id=call.id, approved=decision.approved, reason=decision.reason)
             if not decision.approved:
-                why = f" Reason: {decision.reason}" if decision.reason else ""
+                why = f" Reason: {decision.reason.rstrip('.')}." if decision.reason else ""
                 return fail(f"The user declined this operation.{why} Do not retry it unchanged.")
 
         bus.emit(ev.STATUS, phase="executing", detail=tool.preview(args))

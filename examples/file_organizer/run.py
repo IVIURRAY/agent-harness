@@ -42,24 +42,40 @@ TASK = "Organise the files in this workspace into appropriate subdirectories."
 
 
 def offline_script():
+    """A scripted run for --offline mode: no API key, but the harness, approvals and filesystem
+    operations are all real. It branches if you decline the receipt move, like a model would."""
     from harness.providers.scripted import Script, ScriptedProvider
 
-    m = lambda src, dst: ("move_file", {"source": src, "destination": dst})  # noqa: E731
+    def m(src, dst):
+        return ("move_file", {"source": src, "destination": dst})
+
+    def receipt_declined(history):
+        return any(call.name == "move_file" and "receipt" in call.args.get("source", "")
+                   and outcome.is_error and "declined" in outcome.content
+                   for call, outcome in history)
+
     return ScriptedProvider([
         Script("Let me look at what's here.", [("list_files", {"path": "."})]),
-        Script("A couple of names are ambiguous; reading them.",
-               [("read_file", {"path": "standup_2026_11_10.txt"}), ("read_file", {"path": "notes_langgraph_checkpoints.txt"})]),
-        Script("I'll create four folders.", [("create_directory", {"path": p}) for p in ("finance", "travel", "work", "recipes")]),
-        Script("Moving files into place.", [
+        Script("Two names are ambiguous, so I'll read them.",
+               [("read_file", {"path": "standup_2026_11_10.txt"}),
+                ("read_file", {"path": "notes_langgraph_checkpoints.txt"})]),
+        Script("I'll group these into four folders: finance, travel, work and recipes.",
+               [("create_directory", {"path": p}) for p in ("finance", "travel", "work", "recipes")]),
+        Script("Moving each file into its folder.", [
             m("invoice_march_acme.txt", "finance"), m("invoice_april_hosting.txt", "finance"),
             m("receipt_climbing_shoes.txt", "finance"), m("trip_ideas_portugal.txt", "travel"),
             m("packing_list_alps_hike.txt", "travel"), m("meeting_notes_q3_planning.txt", "work"),
             m("standup_2026_11_10.txt", "work"), m("notes_langgraph_checkpoints.txt", "work"),
             m("recipe_feijoada.txt", "recipes"), m("recipe_pao_de_queijo.txt", "recipes"),
         ]),
-        Script("Checking the result.", [("list_files", {"path": "."})]),
-        Script("Done: finance/ (3), travel/ (2), work/ (3), recipes/ (2)."),
-    ])
+        Script("You declined the receipt move, so I'll give receipts their own folder.",
+               [("create_directory", {"path": "receipts"}), m("receipt_climbing_shoes.txt", "receipts")],
+               when=receipt_declined),
+        Script("Checking the final layout.", [("list_files", {"path": "."})]),
+        Script("Done. Final layout: finance/ (invoices), receipts/ (receipts), travel/, work/ and recipes/.",
+               when=receipt_declined),
+        Script("Done. Final layout: finance/ (3), travel/ (2), work/ (3), recipes/ (2)."),
+    ], latency=0.9)
 
 
 def main(argv: list[str] | None = None) -> int:
