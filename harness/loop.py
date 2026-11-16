@@ -3,22 +3,22 @@
     task -> [compact?] -> model -> tool calls? -> (approve) -> execute -> results -> model ...
                                      \-> no: done
 
-Everything the LLM can't be trusted to do itself lives here: step limits, input validation,
-sandboxed execution, approvals, result truncation, repeated-call detection, compaction, and
-emitting an event for every transition.
+The loop orchestrates; it doesn't hold the rules. Per-call and per-reply checks live in
+harness/guardrails.py, path enforcement in harness/sandbox.py, human approval in
+harness/approvals.py. What stays here: the step budget, compaction, and emitting an event for
+every transition.
 """
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass, field
 from typing import Any
 
 from . import events as ev
 from .approvals import ApprovalGate, AutoApprove
 from .events import EventBus
+from .guardrails import GuardrailConfig, Guardrails
 from .providers.base import (
-    STOP_MAX_TOKENS,
     STOP_PAUSE,
     STOP_REFUSAL,
     ModelTurn,
@@ -27,7 +27,7 @@ from .providers.base import (
     ToolCall,
     ToolOutcome,
 )
-from .tools.base import ToolError, ToolRegistry, truncate
+from .tools.base import ToolError, ToolRegistry
 
 SUMMARY_PROMPT = """\
 Context is getting long, so the conversation will be replaced by a summary. Write that summary now.
@@ -50,7 +50,7 @@ Continue the task from where you left off. Re-check the current state with tools
 class AgentConfig:
     max_steps: int = 40                 # model calls per run - the hard stop on runaway loops
     compact_at_tokens: int = 120_000    # compact when the context reaches this size
-    max_identical_calls: int = 3        # same tool + same args this many times in a row -> blocked
+    guardrails: GuardrailConfig = field(default_factory=GuardrailConfig)
 
 
 @dataclass
@@ -68,8 +68,6 @@ class RunResult:
 @dataclass
 class _RunState:
     approve_rest: bool = False
-    last_call_sig: str = ""
-    repeat_count: int = 0
     context_tokens: int = 0
     result: RunResult = field(default_factory=lambda: RunResult(status="running"))
 
@@ -90,12 +88,14 @@ class Agent:
         self.approvals = approvals or AutoApprove()
         self.bus = bus or EventBus()
         self.config = config or AgentConfig()
+        self.guardrails = Guardrails(tools, self.config.guardrails)
 
     # ----------------------------------------------------------------------------------
     def run(self, task: str) -> RunResult:
         cfg, bus = self.config, self.bus
         state = _RunState()
         res = state.result
+        self.guardrails.reset()
         session = self.provider.start(self.system, list(self.tools))
         session.add_user(task)
         bus.emit(ev.RUN_STARTED, task=task, provider=self.provider.name, model=self.provider.model,
@@ -121,9 +121,9 @@ class Agent:
                 continue
             if turn.stop == STOP_REFUSAL:
                 return self._finish(res, "refused", final_text=turn.text, error="; ".join(turn.notes))
-            if turn.stop == STOP_MAX_TOKENS and not turn.tool_calls:
-                bus.emit(ev.GUARDRAIL, reason="reply hit max_tokens; asking the model to continue concisely")
-                session.add_user("Your previous reply was cut off by the output limit. Continue, more concisely.")
+            if trip := self.guardrails.check_reply(turn):
+                bus.emit(ev.GUARDRAIL, reason=trip.reason)
+                session.add_user(trip.message)
                 continue
             if not turn.tool_calls:
                 return self._finish(res, "completed", final_text=turn.text)
@@ -152,26 +152,17 @@ class Agent:
 
     def _execute(self, call: ToolCall, state: _RunState) -> ToolOutcome:
         bus = self.bus
-        tool = self.tools.get(call.name)
         bus.emit(ev.TOOL_CALL, id=call.id, name=call.name, args=call.args)
 
         def fail(msg: str) -> ToolOutcome:
             bus.emit(ev.TOOL_RESULT, id=call.id, name=call.name, ok=False, output=msg)
             return ToolOutcome(call.id, msg, is_error=True)
 
-        if tool is None:
-            return fail(f"Unknown tool {call.name!r}.")
-        if problem := self.tools.validate(tool, call.args):
-            return fail(f"Invalid arguments: {problem}")
+        tool, trip = self.guardrails.check_call(call)
+        if trip:
+            bus.emit(ev.GUARDRAIL, reason=trip.reason)
+            return fail(trip.message)
         args: dict[str, Any] = call.args
-
-        # Repeated-call guard: catches a model stuck retrying the same thing.
-        sig = f"{call.name}:{json.dumps(args, sort_keys=True)}"
-        state.repeat_count = state.repeat_count + 1 if sig == state.last_call_sig else 1
-        state.last_call_sig = sig
-        if state.repeat_count > self.config.max_identical_calls:
-            bus.emit(ev.GUARDRAIL, reason=f"blocked repeated call {call.name}")
-            return fail("Blocked by harness: this exact call was repeated too many times. Try something different.")
 
         if tool.requires_approval and not state.approve_rest:
             preview = tool.preview(args)
@@ -186,7 +177,7 @@ class Agent:
 
         bus.emit(ev.STATUS, phase="executing", detail=tool.preview(args))
         try:
-            output = truncate(tool.fn(**args))
+            output = self.guardrails.cap_result(tool.fn(**args))
         except ToolError as exc:
             return fail(f"Error: {exc}")
         except Exception as exc:  # never leak stack traces / internals into the context

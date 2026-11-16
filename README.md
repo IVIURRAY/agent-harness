@@ -90,7 +90,8 @@ sees*, and *when to stop*.
 
 | File | Role |
 |---|---|
-| `harness/loop.py` | The loop: step limit, tool dispatch, validation, approvals, repeat guard, compaction, events |
+| `harness/loop.py` | The loop: step budget, tool dispatch, approvals, compaction, events |
+| `harness/guardrails.py` | Per-call and per-reply checks: unknown tool, schema, repeat guard, output cap, cut-off replies, "asked instead of acting" nudge. Its docstring indexes the guardrails that live elsewhere |
 | `harness/providers/base.py` | Provider boundary: normalised `ModelTurn` / `ToolCall` / `ToolOutcome` |
 | `harness/providers/anthropic_provider.py` | Claude via the official SDK |
 | `harness/providers/openai_compat.py` | Any OpenAI-compatible endpoint: OpenRouter (default), OpenAI, Ollama, vLLM |
@@ -133,8 +134,21 @@ violation, user decline and tool exception all come back as `is_error` results t
 to. Internal exceptions are logged as guardrail events and the model only sees "Internal tool error".
 Stack traces don't go into the context.
 
-**6. Runaway protection.** These are hard limits: `max_steps` model calls, an 8k-character cap per tool
-result, and blocking of the same tool with the same args more than 3 times in a row.
+**6. Guardrails in one place, enforcement where it belongs.** `harness/guardrails.py` holds the
+checks the loop runs around the model: unknown tools and bad arguments are rejected, the same call
+more than 3 times in a row is blocked, each tool result is capped at 8k characters, and a reply cut
+off at the output limit is continued, never run. The path jail stays in `sandbox.py` and approvals in
+`approvals.py`, because those *are* the enforcement points, and the step budget (40 model calls)
+stays in the loop. Every check that fires returns a message to the model instead of raising, so the
+run can recover, and emits a `guardrail` event for the trace.
+
+**6b. "Asked instead of acting" nudge.** A common failure, especially with weaker models: the
+model writes "Shall I go ahead?" instead of calling the tool. With no tool calls in the reply, a
+naive loop treats the task as finished. `check_reply()` spots a reply that ends on a question or
+asks permission, and appends one nudge ("call the tools; the harness asks the user itself"). It
+fires at most once per run, so a false positive costs one extra turn, and it can be turned off with
+`GuardrailConfig(nudge_text_questions=False)`. The system prompt says the same thing; the guardrail
+covers models that ignore the prompt.
 
 **7. Credentials never touch the context.** The SDK reads `ANTHROPIC_API_KEY` from the process
 env. The harness never reads it, puts it in a prompt, or traces it.
@@ -181,8 +195,9 @@ traces, offline provider, tests.
    failure modes (bad args, ignored declines, premature "done") is the most instructive thing in this repo.
 3. **OTel exporter** subscriber to Phoenix or MLflow.
 4. **Persistent memory / resumable runs.** Checkpoint the transcript and run state to disk.
-5. **Input/output guardrails** (e.g. prompt-injection screening of file contents before they enter
-   the context). This matters as soon as tools read untrusted data.
+5. **Content guardrails** (e.g. prompt-injection screening of file contents before they enter
+   the context). This matters as soon as tools read untrusted data. It slots in next to
+   `Guardrails.cap_result()`.
 6. **Process-level sandboxing** (container, seccomp) once tools run code or shell. The path jail is
    enough for fs-only tools, not for `bash`.
 

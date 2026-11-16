@@ -1,18 +1,20 @@
 from harness import Agent, AgentConfig, EventBus
+from harness.guardrails import GuardrailConfig
 from harness.approvals import ScriptedApprovals
 from harness.providers.scripted import Script, ScriptedProvider
 from harness.sandbox import Sandbox
 from harness.tools import ToolRegistry, filesystem_tools
 
 
-def make_agent(tmp_path, turns, approvals=None, **cfg):
+def make_agent(tmp_path, turns, approvals=None, max_identical_calls=3, **cfg):
     (tmp_path / "a.txt").write_text("a")
     provider = ScriptedProvider(turns)
     events = []
     bus = EventBus()
     bus.subscribe(events.append)
     agent = Agent(provider, "sys", ToolRegistry(filesystem_tools(Sandbox(tmp_path))),
-                  approvals=approvals or ScriptedApprovals([]), bus=bus, config=AgentConfig(**cfg))
+                  approvals=approvals or ScriptedApprovals([]), bus=bus,
+                  config=AgentConfig(guardrails=GuardrailConfig(max_identical_calls=max_identical_calls), **cfg))
     return agent, provider, events
 
 
